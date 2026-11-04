@@ -108,9 +108,21 @@ and merges again. Git runs with `GIT_TERMINAL_PROMPT=0`; if neither
 
 ## Merging
 
-`.gitattributes` marks entry files `-merge`, so Git never text-merges them;
-when both sides changed one, it is left unmerged and resolved in-process from
-the index stages (1 base, 2 ours, 3 theirs; a missing stage is empty):
+`.gitattributes` (exact content below) disables end-of-line conversion for
+everything, so live bytes round-trip unchanged, and marks entry files `-merge`,
+so Git never text-merges them:
+
+```
+* -text
+global/USER.md -merge
+global/MEMORY.md -merge
+global/failures.md -merge
+global/STANDING.md -merge
+projects/*/MEMORY.md -merge
+```
+
+When both sides changed an entry file, Git leaves it unmerged and it is
+resolved in-process from the index stages (1 base, 2 ours, 3 theirs; a missing stage is empty):
 
 - Entries = file split on `ENTRY_DELIMITER`, trimmed, non-empty. Identity of a
   raw entry for set logic is its exact text including the metadata comment.
