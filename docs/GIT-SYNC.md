@@ -53,9 +53,24 @@ conflicts/**                   preserved losing side of non-entry conflicts
 everywhere: names starting with `.`, symlinks, non-regular files. Anything
 else in a project dir (for example `improvement-backlog.md`) is not synced.
 
-"Entry files" are the four global Markdown stores and every project
-`MEMORY.md`. Everything else (skills, assets) is a "plain file". File mode
-(executable bit) is preserved both ways.
+"Entry files" are merged as sets of entries and come in two formats:
+
+- `§` files: `global/USER.md`, `global/MEMORY.md`, `global/failures.md` and
+  every `projects/<name>/MEMORY.md`. Entries are split on `ENTRY_DELIMITER`
+  and serialized as `MemoryStore.saveToDisk` does (joined, no trailing newline).
+- Line file: `global/STANDING.md`. `StandingInstructions` stores one
+  instruction per line (blank, `#` and bullet lines tolerated), not `§`
+  entries, so here an entry is one trimmed non-empty line and the result is
+  serialized as `StandingInstructions.write` does (lines + trailing newline).
+  Treating it as a `§` file would concatenate both versions and inject a `§`
+  pseudo-instruction.
+
+Everything else (skills, assets) is a "plain file". File mode (executable bit)
+is preserved both ways.
+
+The sync code takes every live path explicitly (`globalDir`, `projectsRoot`,
+`agentRoot`, `projectsMemoryDir`) and never reads `AGENT_ROOT` itself, so tests
+can run several "machines" in one process.
 
 ## Per-machine state
 
@@ -124,12 +139,14 @@ projects/*/MEMORY.md -merge
 When both sides changed an entry file, Git leaves it unmerged and it is
 resolved in-process from the index stages (1 base, 2 ours, 3 theirs; a missing stage is empty):
 
-- Entries = file split on `ENTRY_DELIMITER`, trimmed, non-empty. Identity of a
-  raw entry for set logic is its exact text including the metadata comment.
+- Entries = parsed per format (see Repository layout), trimmed, non-empty.
+  Identity of a raw entry for set logic is its exact text including the
+  metadata comment.
 - `removed = (base - ours) ∪ (base - theirs)`;
   `result = ours - removed` (keep order) `+ (theirs - base - ours)` (append).
 - Dedupe by visible identity (text without metadata + `project64`): keep the
-  first position, `created = min`, `last = max`.
+  first position, `created = min`, `last = max`. `STANDING.md` lines have no
+  metadata; they dedupe case-insensitively like `parseInstructions`.
 - Same entry edited differently on both sides => both new versions survive.
   This is intentional: never lose a write, consolidation can merge them later.
 
@@ -152,6 +169,10 @@ For every managed path where exported != result:
 - Remove skill directories left empty by deletions.
 - Reconcile SQLite with `syncMarkdownMemoriesToSqlite(..., { onlyProjects })`
   for the changed project scopes (global scopes are always checked).
+  `STANDING.md` is not mirrored in SQLite; running sessions load pins at
+  `session_start`, so pulled pins apply from the next session.
+- New skills are discovered by Pi at the next `resources_discover`
+  (new session or `/reload`); `skill_manage` reads from disk immediately.
 
 ## Scheduling inside the extension
 
