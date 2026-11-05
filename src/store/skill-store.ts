@@ -31,6 +31,8 @@ interface SkillStoreOptions {
   projectName?: string | null;
   legacySkillsDir?: string;
   migrationSentinelPath?: string;
+  /** Git sync signature written as `author` on created skills; null = unsigned. */
+  machineName?: string | null;
 }
 
 interface SkillLocation {
@@ -160,6 +162,7 @@ export class SkillStore {
   private projectName: string | null;
   private legacySkillsDir: string;
   private migrationSentinelPath: string;
+  private machineName: string | null;
 
   constructor(options: SkillStoreOptions = {}) {
     const agentRoot = AGENT_ROOT;
@@ -170,6 +173,11 @@ export class SkillStore {
     this.legacySkillsDir = options.legacySkillsDir ?? path.join(agentRoot, "memory", "skills");
     this.migrationSentinelPath = options.migrationSentinelPath
       ?? path.join(agentRoot, "pi-hermes-memory", ".skills-migrated-to-extension-storage");
+    this.machineName = options.machineName ?? null;
+  }
+
+  getMachineName(): string | null {
+    return this.machineName;
   }
 
   getGlobalSkillsDir(): string {
@@ -448,6 +456,7 @@ export class SkillStore {
       created: stamp,
       updated: stamp,
       body,
+      author: this.machineName ?? undefined,
     }));
 
     return {
@@ -511,6 +520,7 @@ export class SkillStore {
       created: doc.created,
       updated: today(),
       body: result.join("\n").trim(),
+      author: doc.author,
     }));
 
     return {
@@ -547,6 +557,7 @@ export class SkillStore {
       created: doc.created,
       updated: today(),
       body: newBody,
+      author: doc.author,
     }));
 
     return {
@@ -658,6 +669,7 @@ export class SkillStore {
       created: doc.created,
       updated: doc.updated,
       body: doc.body,
+      author: doc.author,
     }));
 
     try {
@@ -898,6 +910,7 @@ export class SkillStore {
         created: meta.created || today(),
         updated: meta.updated || today(),
         body,
+        author: meta.author?.trim() || undefined,
       };
     } catch {
       return null;

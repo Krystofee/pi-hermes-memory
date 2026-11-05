@@ -29,6 +29,8 @@ export interface GitSyncConfig {
   remoteCheckIntervalSeconds: number;
   /** Default: true */
   enabled: boolean;
+  /** Signature of this machine on memories and skills it writes. Default: short hostname */
+  machineName: string;
 }
 
 export interface MemoryConfig {
@@ -252,6 +254,8 @@ export interface SkillDocument extends SkillIndex {
   body: string;
   /** Version number */
   version: number;
+  /** Machine that created the skill (git sync signature); unset = shared */
+  author?: string;
 }
 
 export interface SkillResult {

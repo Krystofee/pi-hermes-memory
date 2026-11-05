@@ -23,7 +23,8 @@ runs in the background and tolerates being offline.
     "remoteUrl": "git@gitlab.com:krystofee/pi-hermes-memory-repo.git",
     "branch": "main",
     "remoteCheckIntervalSeconds": 300,
-    "enabled": true
+    "enabled": true,
+    "machineName": "Macbook"
   }
 }
 ```
@@ -31,6 +32,38 @@ runs in the background and tolerates being offline.
 Sync is active only when `repoPath` is set, `enabled` is not `false` and the
 process is not a memory child (`isMemoryChildProcess()`). `remoteUrl` is used
 only to clone a missing `repoPath`. Remote name is always `origin`.
+
+## Signatures
+
+Facts can differ per machine (paths, runtimes, ports, services). Without
+ownership, an agent on machine B that sees a different reality would replace
+machine A's entry, and the sync would then take A's fact away from A.
+
+- `machineName` (default: short hostname) signs everything this machine writes
+  while sync is enabled: memory entries get `[@name]` at the start of their text,
+  after the `[category]` tag for lessons (`[tool-quirk] [@devvm] ...`); created
+  skills get `author: "name"` in the frontmatter. A signature typed by the
+  writer is replaced with the real one, so a machine cannot forge another's.
+- `memory_replace` / `memory_remove` and every internal write path (background
+  review, correction capture, consolidation plans) refuse entries signed by
+  another machine; the error tells the agent to add its own entry instead.
+  `USER.md` is signed but open to all machines: it describes the person.
+- `skill_manage` refuses patch/update/delete of a skill authored by another
+  machine, except a patch of its own `Notes (<machineName>)` section, which
+  is appended when missing.
+- `override_owner=true` (memory_replace, memory_remove, skill_manage) lifts the
+  lock when the user explicitly asks; an overridden memory keeps the original
+  machine's signature.
+- Unsigned entries and skills are shared: any machine may change them, and a
+  changed memory entry gets the writer's signature.
+- The signature is visible text, so search, injected lessons, consolidation and
+  the SQLite mirror need no extra field. The same fact written by two machines
+  stays two entries.
+- Every session gets a `<memory-machine>` prompt block naming its machine and
+  the rule, including memory children.
+- Limits: the lock protects the extension's write paths, not an agent editing
+  the Markdown with a shell. `fifo-evict` (legacy-inject mode only) still
+  evicts the oldest entries regardless of signature.
 
 ## Repository layout
 

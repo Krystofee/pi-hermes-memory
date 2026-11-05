@@ -126,6 +126,7 @@ export default function (pi: ExtensionAPI) {
     projectName: null,
     legacySkillsDir: path.join(legacyGlobalDir, "skills"),
     migrationSentinelPath: path.join(globalDir, ".skills-migrated-to-extension-storage"),
+    machineName: config.sync?.enabled ? config.sync.machineName : null,
   });
   const dbManager = new DatabaseManager(globalDir);
   let databaseClosed = false;

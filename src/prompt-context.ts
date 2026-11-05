@@ -2,6 +2,7 @@ import { MEMORY_POLICY_PROMPT, MEMORY_POLICY_PROMPT_COMPACT } from "./constants.
 import type { MemoryConfig } from "./types.js";
 import type { MemoryStore } from "./store/memory-store.js";
 import type { StandingInstructions } from "./store/standing-instructions.js";
+import { machinePolicyPrompt } from "./sync/signature.js";
 
 type MemoryPolicyConfig = Pick<MemoryConfig, "memoryPolicyStyle" | "memoryPolicyCustomText"> & { skillsEnabled?: boolean };
 
@@ -41,7 +42,7 @@ export function resolveMemoryPolicyPrompt(config: MemoryPolicyConfig): string {
  * operative directive rather than as recalled context.
  */
 export async function buildPromptContext(
-  config: Pick<MemoryConfig, "memoryMode" | "memoryPolicyStyle" | "memoryPolicyCustomText"> & { skillsEnabled?: boolean },
+  config: Pick<MemoryConfig, "memoryMode" | "memoryPolicyStyle" | "memoryPolicyCustomText" | "sync"> & { skillsEnabled?: boolean },
   store: MemoryStore,
   projectStore: MemoryStore | null,
   projectName: string,
@@ -49,13 +50,15 @@ export async function buildPromptContext(
   forChild = false,
 ): Promise<string> {
   const standingBlock = standing?.formatForSystemPrompt() ?? "";
+  // Children write memories too, so they get the machine rule as well.
+  const machineBlock = config.sync?.enabled ? machinePolicyPrompt(config.sync.machineName) : "";
 
   if (config.memoryMode === "policy-only") {
     // Children run with only the memory write tools, so the policy would advertise
     // tools they cannot call (memory_search, session_search, skill_manage).
     // Standing instructions still apply.
-    if (forChild) return standingBlock;
-    return [resolveMemoryPolicyPrompt(config), standingBlock].filter(Boolean).join("\n\n");
+    if (forChild) return [machineBlock, standingBlock].filter(Boolean).join("\n\n");
+    return [resolveMemoryPolicyPrompt(config), machineBlock, standingBlock].filter(Boolean).join("\n\n");
   }
 
   // Legacy blocks are memory data, not policy, so children keep them.
@@ -65,6 +68,7 @@ export async function buildPromptContext(
   const parts: string[] = [];
   if (memoryBlock) parts.push(memoryBlock);
   if (projectBlock) parts.push(projectBlock);
+  if (machineBlock) parts.push(machineBlock);
   if (standingBlock) parts.push(standingBlock);
 
   return parts.join("\n\n");

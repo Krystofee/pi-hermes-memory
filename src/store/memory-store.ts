@@ -37,6 +37,7 @@ import type {
 } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
 import { canonicalMarkdownIdentity, withMarkdownMutationLock } from "./markdown-mutation-lock.js";
+import { entryOwner, foreignOwnerError, signEntry } from "../sync/signature.js";
 
 const MAX_EXTERNAL_WRITE_RETRIES = 2;
 const RECOVERY_ACTIVE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -147,6 +148,30 @@ export class MemoryStore {
   capacityUsage(target: "memory" | "user" | "failure"): number {
     return this.charCount(target);
   }
+  /** Git sync signature of this machine; null keeps upstream behaviour (no signing, no ownership). */
+  private get machineName(): string | null {
+    return this.config.sync?.enabled ? this.config.sync.machineName : null;
+  }
+
+  private signed(text: string, owner?: string | null): string {
+    const machine = this.machineName;
+    return machine ? signEntry(text, owner ?? machine) : text;
+  }
+
+  /**
+   * The owner of entries signed by another machine, if this write may not touch
+   * them. USER.md describes the person, not a machine, so it is signed but open.
+   */
+  private foreignOwner(target: "memory" | "user" | "failure", entries: string[]): string | null {
+    const machine = this.machineName;
+    if (!machine || target === "user") return null;
+    for (const entry of entries) {
+      const owner = entryOwner(this.stripMetadata(entry));
+      if (owner && owner !== machine) return owner;
+    }
+    return null;
+  }
+
   private get capEnforced(): boolean {
     return this.config.memoryMode !== "policy-only";
   }
@@ -252,6 +277,7 @@ export class MemoryStore {
   ): Promise<MemoryResult> {
     content = content.trim();
     if (!content) return { success: false, error: "Content cannot be empty." };
+    content = this.signed(content);
 
     const scanError = scanContent(content);
     if (scanError) return { success: false, error: scanError };
@@ -426,13 +452,13 @@ export class MemoryStore {
         if (operation.action === "add") {
           const content = operation.content?.trim() ?? "";
           if (!content) return { success: false, error: "Memory mutation add requires content." };
-          const normalizedContent = target === "failure" && operation.category
+          const normalizedContent = this.signed(target === "failure" && operation.category
             ? this.buildFailureMemoryText(content, {
                 category: operation.category,
                 failureReason: operation.failureReason,
                 project: operation.project,
               })
-            : content;
+            : content);
           const scanError = scanContent(normalizedContent);
           if (scanError) return { success: false, error: scanError };
           const normalizedProject = operation.project?.trim() || null;
@@ -455,14 +481,18 @@ export class MemoryStore {
           return { success: false, error: `Multiple entries matched '${oldText}'. Be more specific.` };
         }
 
+        const owner = this.foreignOwner(target, matches);
+        if (owner) return { success: false, error: foreignOwnerError(owner, this.machineName!, "entry") };
+
         if (operation.action === "remove") {
           const matchedEntries = new Set(matches);
           plannedEntries = plannedEntries.filter((entry) => !matchedEntries.has(entry));
           continue;
         }
 
-        const content = operation.content?.trim() ?? "";
-        if (!content) return { success: false, error: "Memory mutation replace requires content." };
+        const rawContent = operation.content?.trim() ?? "";
+        if (!rawContent) return { success: false, error: "Memory mutation replace requires content." };
+        const content = this.signed(rawContent);
         const scanError = scanContent(content);
         if (scanError) return { success: false, error: scanError };
         const replacementError = this.validateWholeEntryReplacement(matches, oldText, content);
@@ -499,10 +529,17 @@ export class MemoryStore {
     }, options.signal);
   }
 
-  async replace(target: "memory" | "user" | "failure", oldText: string, newContent: string, signal?: AbortSignal): Promise<MemoryResult> {
+  /** overrideOwner: the user explicitly asked to change another machine's entry; it keeps that machine's signature. */
+  async replace(
+    target: "memory" | "user" | "failure",
+    oldText: string,
+    newContent: string,
+    signal?: AbortSignal,
+    options: { overrideOwner?: boolean } = {},
+  ): Promise<MemoryResult> {
     return this.runTargetMutation(
       target,
-      (markMutation) => this.replaceUnlocked(target, oldText, newContent, markMutation),
+      (markMutation) => this.replaceUnlocked(target, oldText, newContent, markMutation, options.overrideOwner === true),
       signal,
     );
   }
@@ -512,6 +549,7 @@ export class MemoryStore {
     oldText: string,
     newContent: string,
     markMutation: () => void,
+    overrideOwner: boolean,
   ): Promise<MemoryResult> {
     oldText = normalizeMemoryLookupText(oldText);
     newContent = newContent.trim();
@@ -534,6 +572,10 @@ export class MemoryStore {
         matches: matches.map((e) => this.stripMetadata(e).slice(0, 80) + (e.length > 80 ? "..." : "")),
       };
     }
+
+    const owner = this.foreignOwner(target, matches);
+    if (owner && !overrideOwner) return { success: false, error: foreignOwnerError(owner, this.machineName!, "entry") };
+    newContent = this.signed(newContent, owner);
 
     const replacementError = this.validateWholeEntryReplacement(matches, oldText, newContent);
     if (replacementError) return { success: false, error: replacementError };
@@ -563,10 +605,15 @@ export class MemoryStore {
     return this.successResponse(target, "Entry replaced.");
   }
 
-  async remove(target: "memory" | "user" | "failure", oldText: string, signal?: AbortSignal): Promise<MemoryResult> {
+  async remove(
+    target: "memory" | "user" | "failure",
+    oldText: string,
+    signal?: AbortSignal,
+    options: { overrideOwner?: boolean } = {},
+  ): Promise<MemoryResult> {
     return this.runTargetMutation(
       target,
-      (markMutation) => this.removeUnlocked(target, oldText, markMutation),
+      (markMutation) => this.removeUnlocked(target, oldText, markMutation, options.overrideOwner === true),
       signal,
     );
   }
@@ -575,6 +622,7 @@ export class MemoryStore {
     target: "memory" | "user" | "failure",
     oldText: string,
     markMutation: () => void,
+    overrideOwner: boolean,
   ): Promise<MemoryResult> {
     oldText = normalizeMemoryLookupText(oldText);
     if (!oldText) return { success: false, error: "old_text cannot be empty." };
@@ -591,6 +639,9 @@ export class MemoryStore {
         matches: matches.map((e) => this.stripMetadata(e).slice(0, 80) + (this.stripMetadata(e).length > 80 ? "..." : "")),
       };
     }
+
+    const owner = this.foreignOwner(target, matches);
+    if (owner && !overrideOwner) return { success: false, error: foreignOwnerError(owner, this.machineName!, "entry") };
 
     const matchedEntries = new Set(matches);
     this.setEntries(target, entries.filter((entry) => !matchedEntries.has(entry)));

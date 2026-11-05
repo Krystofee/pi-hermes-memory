@@ -7,6 +7,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { SkillStore } from "../store/skill-store.js";
+import { foreignOwnerError } from "../sync/signature.js";
 import { SKILL_TOOL_DESCRIPTION } from "../constants.js";
 import { createSharedToolResultRenderer } from "./shared-output-view.js";
 import { skillResultView } from "./tool-result-views.js";
@@ -85,6 +86,9 @@ const SKILL_TOOL_PARAMETERS = Type.Object({
   verification_steps: Type.Optional(Type.Array(Type.String(), {
     description: "Structured create/update/edit field, or structured patch body when section is 'Verification'.",
   })),
+  override_owner: Type.Optional(Type.Boolean({
+    description: "Change a skill authored by another machine. Only when the user explicitly asked; otherwise patch your own 'Notes (<this machine>)' section.",
+  })),
 }, { additionalProperties: false });
 
 export const SKILL_MANAGE_TOOL_NAME = "skill_manage";
@@ -120,6 +124,7 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
         procedure_steps?: unknown;
         pitfalls?: unknown;
         verification_steps?: unknown;
+        override_owner?: boolean;
       };
       const {
         action,
@@ -133,7 +138,20 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
         procedure_steps,
         pitfalls,
         verification_steps,
+        override_owner,
       } = skillParams;
+
+      // A skill authored on another machine may describe how things work there;
+      // this machine adds its own Notes section instead of rewriting it.
+      const machine = store.getMachineName();
+      const ownNotesSection = machine ? `notes (${machine.toLowerCase()})` : null;
+      const foreignOwnerRefusal = async (skillId: string) => {
+        if (!machine || override_owner === true) return null;
+        const author = (await store.loadSkill(skillId))?.author;
+        return author && author !== machine
+          ? { success: false, error: foreignOwnerError(author, machine, "skill") }
+          : null;
+      };
 
       const whenToUse = typeof when_to_use === "string" ? when_to_use.trim() : "";
       const procedureSteps = normalizeTextList(procedure_steps);
@@ -275,7 +293,8 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
             };
           }
 
-          result = await store.patch(skill_id, section, patchContent);
+          result = (sectionKey !== ownNotesSection && await foreignOwnerRefusal(skill_id))
+            || await store.patch(skill_id, section, patchContent);
           break;
         }
 
@@ -303,7 +322,7 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
               details: {},
             };
           }
-          result = await store.edit(skill_id, nextDescription, nextBody);
+          result = await foreignOwnerRefusal(skill_id) ?? await store.edit(skill_id, nextDescription, nextBody);
           break;
         }
 
@@ -314,7 +333,7 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
               details: {},
             };
           }
-          result = await store.delete(skill_id);
+          result = await foreignOwnerRefusal(skill_id) ?? await store.delete(skill_id);
           break;
 
         default:

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0-gitsync.2] - 2026-11-05 (fork: Krystofee/pi-hermes-memory)
+
+### Added
+
+- **Machine signatures** ([docs/GIT-SYNC.md → Signatures](docs/GIT-SYNC.md#signatures)): with git sync enabled, `sync.machineName` (default: short hostname) signs memory entries as `[@name]` and created skills with `author`. Another machine's entries cannot be replaced or removed and its skills can only gain a `Notes (<machine>)` section, on every write path including background review and consolidation; `USER.md` stays open. `override_owner=true` on `memory_replace`, `memory_remove` and `skill_manage` lifts the lock when the user explicitly asks. Sessions get a `<memory-machine>` prompt block.
+
 ## [0.10.0-gitsync.1] - 2026-11-05 (fork: Krystofee/pi-hermes-memory)
 
 ### Added

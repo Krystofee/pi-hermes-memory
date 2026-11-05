@@ -703,7 +703,7 @@ describe("registerMemoryTool", () => {
     registerMemoryTool(mockPi, mockStore, null);
     await capturedResult.execute("tc-1", { target: "memory", old_text: "old entry" }, undefined as any, undefined as any, undefined as any);
 
-    assert.deepStrictEqual(removeArgs, ["memory", "old entry"], "should pass target, old_text to store.remove");
+    assert.deepStrictEqual(removeArgs, ["memory", "old entry", undefined, { overrideOwner: false }], "should pass target, old_text, signal and owner options to store.remove");
   });
 
   it("execute delegates replace to store.replace", async () => {
@@ -726,7 +726,7 @@ describe("registerMemoryTool", () => {
     registerMemoryTool(mockPi, mockStore, null);
     await capturedResult.execute("tc-1", { action: "replace", target: "memory", content: "new", old_text: "old" }, undefined as any, undefined as any, undefined as any);
 
-    assert.deepStrictEqual(replaceArgs, ["memory", "old", "new"], "should pass target, old_text, content to store.replace");
+    assert.deepStrictEqual(replaceArgs, ["memory", "old", "new", undefined, { overrideOwner: false }], "should pass target, old_text, content, signal and owner options to store.replace");
   });
 
   it("binds project identity from execute ctx.cwd instead of a factory snapshot", async () => {

@@ -277,6 +277,7 @@ type MemoryToolParams = {
   old_text?: string;
   category?: MemoryCategory;
   failure_reason?: string;
+  override_owner?: boolean;
 };
 export function registerMemoryTool(
   pi: ExtensionAPI,
@@ -318,7 +319,8 @@ export function registerMemoryTool(
     params: MemoryToolParams,
     signal?: AbortSignal,
   ) => {
-    const { target: rawTarget, content, old_text, category, failure_reason } = params;
+    const { target: rawTarget, content, old_text, category, failure_reason, override_owner } = params;
+    const ownerOptions = { overrideOwner: override_owner === true };
     const target = rawTarget === "project" ? "memory" : rawTarget;
     const activeProjectStore = resolveProjectStore(projectStore);
     const activeProjectName = resolveProjectName(projectName);
@@ -371,14 +373,14 @@ export function registerMemoryTool(
       case "replace":
         if (!old_text) throw new Error("old_text is required for 'replace' action.");
         if (!content) throw new Error("content is required for 'replace' action.");
-        result = await store_.replace(target, old_text, content);
+        result = await store_.replace(target, old_text, content, signal, ownerOptions);
         if (result.success && !syncHandled) {
           syncWarning = await syncReplaceToSqlite(rawTarget, old_text, content, dbManager, activeProjectName);
         }
         break;
       case "remove":
         if (!old_text) throw new Error("old_text is required for 'remove' action.");
-        result = await store_.remove(target, old_text);
+        result = await store_.remove(target, old_text, signal, ownerOptions);
         if (result.success && !syncHandled) {
           syncWarning = await syncRemoveFromSqlite(rawTarget, old_text, dbManager, activeProjectName);
         }
@@ -440,6 +442,9 @@ This action-specific tool accepts only the parameters listed in its schema.`;
   const category = StringEnum(["failure", "correction", "insight", "preference", "convention", "tool-quirk"] as const, {
     description: "Category for failure memories.",
   });
+  const overrideOwner = Type.Boolean({
+    description: "Change an entry signed by another machine ([@name]). Only when the user explicitly asked to change that machine's entry; otherwise add your own entry.",
+  });
 
   // Tool names come from MEMORY_WRITE_TOOL_NAMES — the same constant the
   // child argv's --tools allowlist is built from (#275), so a rename cannot
@@ -469,6 +474,7 @@ Replace one existing entry. The target, old_text, and content fields are require
       target,
       old_text: Type.String({ description: "Substring identifying the entry to replace." }),
       content: Type.String({ description: "Replacement entry content." }),
+      override_owner: Type.Optional(overrideOwner),
     }),
   );
   registerActionTool(
@@ -481,6 +487,7 @@ Remove one existing entry. The target and old_text fields are required.`,
     Type.Object({
       target,
       old_text: Type.String({ description: "Substring identifying the entry to remove." }),
+      override_owner: Type.Optional(overrideOwner),
     }),
   );
   return configureProjectStore;

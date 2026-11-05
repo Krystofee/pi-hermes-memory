@@ -45,7 +45,8 @@ async function writeConfig(name: string, extra: Record<string, unknown> = {}) {
     flushOnCompact: false,
     flushOnShutdown: false,
     quickCheckOnOpen: false,
-    sync: { repoPath: path.join(root, "machines", name, "repo"), remoteUrl: remote },
+    // One shared signature: this test is about transport, signatures have their own test below.
+    sync: { repoPath: path.join(root, "machines", name, "repo"), remoteUrl: remote, machineName: "tester" },
     ...extra,
   }));
 }
@@ -164,7 +165,7 @@ describe("git sync through the extension", () => {
     const bMemory = await fs.readFile(path.join(b.memoryDir, "MEMORY.md"), "utf-8");
     assert.match(bMemory, /on GitLab \(private\)/);
     assert.doesNotMatch(bMemory, /Temporary note/);
-    assert.match(await fs.readFile(path.join(b.memoryDir, "failures.md"), "utf-8"), /\[tool-quirk\] glab api/);
+    assert.match(await fs.readFile(path.join(b.memoryDir, "failures.md"), "utf-8"), /\[tool-quirk\] \[@tester\] glab api/);
     assert.match(await fs.readFile(path.join(b.projectsDir, "workspace", "MEMORY.md"), "utf-8"), /dev-lane ports/);
     assert.match(await searchText(b, "concise", "user"), /concise Czech answers/);
     assert.match(await searchText(b, "GitLab"), /private/);
@@ -206,6 +207,46 @@ describe("git sync through the extension", () => {
 
     const remoteFiles = execFileSync("git", ["ls-tree", "-r", "--name-only", "main"], { cwd: remote, encoding: "utf-8" });
     assert.doesNotMatch(remoteFiles, /sessions\.db|\.pi-hermes-locks|recovery/);
+  });
+
+  it("keeps each machine's signed facts and skill notes instead of overwriting them", async () => {
+    const signed = (name: string, machineName: string) => ({
+      sync: { repoPath: path.join(root, "machines", name, "repo"), remoteUrl: remote, machineName },
+    });
+    const a = await start("signed-mac", signed("signed-mac", "Macbook"));
+    const b = await start("signed-devvm", signed("signed-devvm", "devvm"));
+
+    await ok(a, "memory_add", { target: "memory", content: "Docker runs in Colima" });
+    await ok(a, "memory_add", { target: "failure", category: "tool-quirk", content: "GNU timeout is missing, use gtimeout" });
+    await ok(a, "skill_manage", {
+      action: "create", scope: "global", name: "start-local-docker",
+      description: "Start Docker for local Retino services",
+      when_to_use: "Postgres or Redis are not reachable.", procedure_steps: ["colima start"], verification_steps: ["docker ps works"],
+    });
+    await sync(a);
+    await sync(b);
+
+    const refused = await tool(b, "memory_replace", { target: "memory", old_text: "Colima", content: "Docker runs natively" });
+    assert.equal(refused.success, false);
+    assert.match(refused.error, /belongs to machine 'Macbook'/);
+    assert.equal((await tool(b, "memory_remove", { target: "failure", old_text: "GNU timeout" })).success, false);
+    await ok(b, "memory_add", { target: "memory", content: "Docker runs natively" });
+    assert.equal((await tool(b, "skill_manage", { action: "patch", skill_id: "global:start-local-docker", section: "Procedure", procedure_steps: ["systemctl start docker"] })).success, false);
+    await ok(b, "skill_manage", { action: "patch", skill_id: "global:start-local-docker", section: "Notes (devvm)", content: "On devvm Docker is a systemd service: `systemctl start docker`." });
+    await sync(b);
+    await sync(a);
+
+    const memory = await fs.readFile(path.join(a.memoryDir, "MEMORY.md"), "utf-8");
+    assert.match(memory, /\[@Macbook\] Docker runs in Colima/);
+    assert.match(memory, /\[@devvm\] Docker runs natively/);
+    assert.match(await searchText(a, "gtimeout", "failure"), /\[tool-quirk\] \[@Macbook\] GNU timeout/);
+    const skill = JSON.stringify(await ok(a, "skill_manage", { action: "view", skill_id: "global:start-local-docker" }));
+    assert.match(skill, /colima start/);
+    assert.match(skill, /Notes \(devvm\)/);
+    assert.match(skill, /"author":"Macbook"/);
+
+    const prompt = await emit(b, "before_agent_start", { systemPrompt: "base" });
+    assert.match(prompt.systemPrompt, /This machine is 'devvm'/);
   });
 
   it("pushes on session shutdown", async () => {

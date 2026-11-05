@@ -40,7 +40,7 @@ function yamlDoubleQuoted(value: string): string {
   return JSON.stringify(value);
 }
 
-export function formatFrontmatter(doc: Pick<SkillDocument, "name" | "displayName" | "description" | "version" | "created" | "updated" | "body">): string {
+export function formatFrontmatter(doc: Pick<SkillDocument, "name" | "displayName" | "description" | "version" | "created" | "updated" | "body"> & { author?: string }): string {
   const lines = [
     "---",
     `name: ${yamlDoubleQuoted(doc.name)}`,
@@ -53,6 +53,7 @@ export function formatFrontmatter(doc: Pick<SkillDocument, "name" | "displayName
   if (doc.displayName && doc.displayName.trim() && doc.displayName.trim() !== doc.name) {
     lines.push(`display_name: ${yamlDoubleQuoted(doc.displayName.trim())}`);
   }
+  if (doc.author) lines.push(`author: ${yamlDoubleQuoted(doc.author)}`);
 
   lines.push("---", doc.body);
   return lines.join("\n");

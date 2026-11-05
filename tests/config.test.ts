@@ -5,6 +5,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { loadConfig } from "../src/config.js";
 import { AGENT_ROOT } from "../src/paths.js";
+import { defaultMachineName } from "../src/sync/signature.js";
 
 const TEST_CONFIG_PATH = path.join(os.tmpdir(), `hermes-memory-config-test-${process.pid}.json`);
 
@@ -607,12 +608,13 @@ describe("loadConfig", () => {
       branch: "main",
       remoteCheckIntervalSeconds: 300,
       enabled: true,
+      machineName: defaultMachineName(),
     });
   });
 
   it("accepts explicit sync options and ignores invalid ones", () => {
     fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      sync: { repoPath: "sync-repo", branch: "memory/sync", remoteCheckIntervalSeconds: 120, enabled: false },
+      sync: { repoPath: "sync-repo", branch: "memory/sync", remoteCheckIntervalSeconds: 120, enabled: false, machineName: " Macbook " },
     }));
     assert.deepStrictEqual(loadConfig(TEST_CONFIG_PATH).sync, {
       repoPath: path.join(AGENT_ROOT, "sync-repo"),
@@ -620,10 +622,11 @@ describe("loadConfig", () => {
       branch: "memory/sync",
       remoteCheckIntervalSeconds: 120,
       enabled: false,
+      machineName: "Macbook",
     });
 
     fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      sync: { repoPath: "/tmp/r", branch: "../evil branch", remoteCheckIntervalSeconds: 5, enabled: "no", remoteUrl: 7 },
+      sync: { repoPath: "/tmp/r", branch: "../evil branch", remoteCheckIntervalSeconds: 5, enabled: "no", remoteUrl: 7, machineName: "my mac/../x" },
     }));
     assert.deepStrictEqual(loadConfig(TEST_CONFIG_PATH).sync, {
       repoPath: "/tmp/r",
@@ -631,6 +634,7 @@ describe("loadConfig", () => {
       branch: "main",
       remoteCheckIntervalSeconds: 300,
       enabled: true,
+      machineName: defaultMachineName(),
     });
   });
 });

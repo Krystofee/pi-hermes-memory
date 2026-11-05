@@ -22,6 +22,7 @@ import {
   DEFAULT_SESSION_RETENTION_DAYS,
 } from "./constants.js";
 import { AGENT_ROOT, expandHome, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
+import { defaultMachineName, isValidMachineName } from "./sync/signature.js";
 
 const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict"];
 const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
@@ -54,6 +55,7 @@ function parseSyncConfig(value: unknown): GitSyncConfig | undefined {
   if (typeof raw.repoPath !== "string" || !raw.repoPath.trim()) return undefined;
   const branch = typeof raw.branch === "string" ? raw.branch.trim() : "";
   const interval = raw.remoteCheckIntervalSeconds;
+  const machineName = typeof raw.machineName === "string" ? raw.machineName.trim() : "";
   return {
     repoPath: path.resolve(AGENT_ROOT, expandHome(raw.repoPath.trim())),
     remoteUrl: typeof raw.remoteUrl === "string" && raw.remoteUrl.trim() ? raw.remoteUrl.trim() : undefined,
@@ -63,6 +65,7 @@ function parseSyncConfig(value: unknown): GitSyncConfig | undefined {
       ? interval
       : DEFAULT_SYNC_REMOTE_CHECK_INTERVAL_SECONDS,
     enabled: raw.enabled !== false,
+    machineName: isValidMachineName(machineName) ? machineName : defaultMachineName(),
   };
 }
 
