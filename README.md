@@ -22,6 +22,7 @@ Your Pi agent normally forgets everything when you close a session. **This exten
 - 📚 **Procedural skills** — the agent saves *how* it solved problems, not just what
 - ⚡ **Background learning** — reviews every 10 turns, saves what matters
 - 🔄 **Auto-consolidation** — merges entries when full, never loses data
+- 🔁 **Git sync (this fork)** — shares memories, lessons and skills between machines through a private repository, see [Git Sync](#git-sync-fork)
 
 ## Quick Start
 
@@ -691,6 +692,63 @@ without dev/peer dependencies, and loads it through Pi's real jiti loader. It
 exercises the direct-completion path against a loopback HTTP fixture, not a paid
 model or real memory. npm access is required to install production dependencies;
 native install scripts are disabled because the fixture writes no memories.
+
+## Git Sync (fork)
+
+This fork ([Krystofee/pi-hermes-memory](https://github.com/Krystofee/pi-hermes-memory)) can share
+Markdown memories, failure lessons, standing instructions and extension-managed skills between Pi
+machines through one private Git repository. Writes stay local first; a background sync merges them
+with the repository and tolerates being offline. Design and invariants: [docs/GIT-SYNC.md](docs/GIT-SYNC.md).
+
+```bash
+pi install git:github.com/Krystofee/pi-hermes-memory@v0.10.0-gitsync.1
+```
+
+Add a `sync` block to `~/.pi/agent/hermes-memory-config.json`:
+
+```json
+{
+  "sync": {
+    "repoPath": "~/Repos/pi-hermes-memory-repo",
+    "remoteUrl": "git@gitlab.com:you/pi-hermes-memory-repo.git",
+    "branch": "main",
+    "remoteCheckIntervalSeconds": 300
+  }
+}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `repoPath` | — (required) | Local clone used by the sync. Cloned from `remoteUrl` when missing. |
+| `remoteUrl` | unset | Only used to clone a missing `repoPath`. The remote is always `origin`. |
+| `branch` | `main` | Branch shared by all machines. |
+| `remoteCheckIntervalSeconds` | `300` | Minimum seconds between remote checks per machine (min 30). |
+| `enabled` | `true` | `false` turns the sync off without removing the block. |
+
+**What syncs:** `USER.md`, `MEMORY.md`, `failures.md`, `STANDING.md`, every project `MEMORY.md`, and the
+global and project `skills/` trees (including assets and their executable bit).
+**What never syncs:** `sessions.db` (conversation history and the SQLite index, rebuilt locally),
+hidden recovery/lock/temp files, config and credentials. Content that looks like a secret blocks the
+whole run before anything is committed.
+
+**When it runs:** at session start, ~30–60 s after local changes settle, every
+`remoteCheckIntervalSeconds` to pull, and on session exit (bounded to 10 s). Several sessions on one
+machine share one lock and one schedule. Run it now with `/memory-git-sync`; inspect it with
+`/memory-git-sync status`.
+
+**Merging:** memory files merge entry by entry: additions from both machines survive, removals
+propagate, and an entry edited differently on two machines keeps both versions (consolidation can merge
+them). A skill edited on two machines keeps the local version and saves the other one to
+`conflicts/<path>~<host>~<time>` in the repository; merge it by hand and delete the copy.
+
+**New machine:** install the fork, add the `sync` block with `remoteUrl`, and give the machine its own
+SSH key with **write** access to the repository (for example a GitLab deploy key generated on that
+machine). The first run is a union of local and remote content and deletes nothing. Running sessions
+pick up the new package after `/reload` or a restart; pulled skills and standing instructions apply from
+the next session.
+
+**Recovery:** every sync is a commit, so any earlier state of a file can be restored from the
+repository history.
 
 ## Where Data Lives
 

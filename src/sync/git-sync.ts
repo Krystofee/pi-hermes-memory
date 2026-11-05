@@ -43,7 +43,7 @@ const LOCAL_GIT_TIMEOUT_MS = 30_000;
 const NETWORK_GIT_TIMEOUT_MS = 60_000;
 const CLONE_TIMEOUT_MS = 120_000;
 const BOOTSTRAP_BRANCH = "hermes-sync-bootstrap";
-const DEFAULT_SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=15";
+const DEFAULT_SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=10";
 
 export interface SyncOptions {
   repoPath: string;
@@ -218,7 +218,8 @@ async function ensureRepo(options: SyncOptions, host: string): Promise<{ git: Gi
     throw new Error(`Sync repository ${options.repoPath} is not the root of a Git work tree`);
   }
   await git.init();
-  const gitDir = await git.text(["rev-parse", "--absolute-git-dir"]);
+  const gitDir = await gitDirOf(options.repoPath);
+  if (!gitDir) throw new Error(`Sync repository ${options.repoPath} has no Git directory`);
   await fs.mkdir(path.join(gitDir, "hermes-sync"), { recursive: true });
   return { git, gitDir };
 }
@@ -314,8 +315,14 @@ export async function checkLiveDirty(repoPath: string, roots: LiveRoots): Promis
   return { dirty, signature: signatureKey };
 }
 
+/** Called on every scheduler tick, so the common layout avoids spawning git. */
 async function gitDirOf(repoPath: string): Promise<string | null> {
   if (!(await pathExists(repoPath))) return null;
+  try {
+    if ((await fs.stat(path.join(repoPath, ".git"))).isDirectory()) return path.join(await fs.realpath(repoPath), ".git");
+  } catch {
+    // no .git directory: let git decide below (worktree file or not a repo)
+  }
   const result = await new Git(repoPath, os.hostname()).run(["rev-parse", "--absolute-git-dir"], { allowFail: true });
   return result.code === 0 ? result.stdout.toString("utf-8").trim() : null;
 }

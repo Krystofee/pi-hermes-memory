@@ -11,7 +11,7 @@ import { checkLiveDirty, readSyncState, runSync, type SyncOptions, type SyncResu
 
 export const SYNC_TICK_MS = 30_000;
 export const STARTUP_SKIP_AFTER_SYNC_MS = 60_000;
-export const SHUTDOWN_DEADLINE_MS = 15_000;
+export const SHUTDOWN_DEADLINE_MS = 10_000;
 export const MANUAL_LOCK_WAIT_MS = 30_000;
 
 export type SyncNotify = (message: string, level: "info" | "warning" | "error") => void;
@@ -97,6 +97,11 @@ export class GitSyncScheduler {
     if (this.running) return null;
     try {
       const options = this.options.syncOptions();
+      const state = await readSyncState(options.repoPath);
+      const lastAttempt = state?.lastSyncAt ? Date.parse(state.lastSyncAt) : 0;
+      // A failing run (secret gate, broken repo) retries once per interval,
+      // not on every tick; /memory-git-sync still runs immediately.
+      if (state?.lastError && this.now() - lastAttempt < this.options.remoteCheckIntervalSeconds * 1000) return null;
       const check = await checkLiveDirty(options.repoPath, options.roots);
       if (check.dirty) {
         if (this.pendingSignature !== check.signature) {

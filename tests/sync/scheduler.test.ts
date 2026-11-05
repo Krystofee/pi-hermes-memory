@@ -144,6 +144,24 @@ describe("git sync scheduler", () => {
     await fs.rename(`${remote}.off`, remote);
   });
 
+  it("backs off automatic runs after a failure until the interval elapses", async () => {
+    const a = await setup("mac");
+    await a.scheduler.runNow();
+    const leak = path.join(a.globalDir, "skills", "leaky", "SKILL.md");
+    await fs.mkdir(path.dirname(leak), { recursive: true });
+    await fs.writeFile(leak, "token: abcdefghijklmnopqrstuvwxyz\n");
+    assert.equal(await a.scheduler.tick(), null);
+    assert.equal((await a.scheduler.tick())?.status, "error");
+    clock += 60_000;
+    assert.equal(await a.scheduler.tick(), null, "still inside the interval");
+    assert.equal(await a.scheduler.tick(), null);
+    await fs.rm(path.dirname(leak), { recursive: true });
+    assert.equal((await a.scheduler.runNow()).status, "synced", "manual runs are never held back");
+    await fs.writeFile(path.join(a.globalDir, "MEMORY.md"), "after recovery");
+    assert.equal(await a.scheduler.tick(), null);
+    assert.equal((await a.scheduler.tick())?.status, "synced");
+  });
+
   it("skips the startup run right after a successful sync", async () => {
     const a = await setup("mac");
     assert.equal((await a.scheduler.startup())?.status, "synced", "never synced: run");

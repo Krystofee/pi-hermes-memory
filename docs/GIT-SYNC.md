@@ -119,7 +119,7 @@ Every step is restartable: a crash before step 10 leaves `lastImportedCommit`
 unchanged, so the next run re-exports the live store on top of the same base
 and merges again. Git runs with `GIT_TERMINAL_PROMPT=0`; if neither
 `GIT_SSH_COMMAND` nor `core.sshCommand` is set, SSH gets
-`-o BatchMode=yes -o ConnectTimeout=15`.
+`-o BatchMode=yes -o ConnectTimeout=10`.
 
 ## Merging
 
@@ -183,8 +183,11 @@ For every managed path where exported != result:
   `now - lastRemoteCheckAt >= remoteCheckIntervalSeconds`.
 - Dirty = signature differs from state and content hashes differ too
   (mtime-only changes just refresh the stored signature).
+- After a failed run, automatic runs wait for the interval (a persistent
+  error such as the secret gate must not re-run every tick).
 - `session_shutdown`: registered after session flush and before the final DB
-  close; if dirty, run with a 15 s deadline; never throws.
+  close; if dirty, run with a 10 s deadline (an offline exit must stay
+  quick); never throws. A run cut off by the exit is restartable.
 - `/memory-git-sync` runs now and reports a short summary.
   `/memory-git-sync status` shows repo, branch, last success/error, dirty,
   pending push and conflicts.

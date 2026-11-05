@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0-gitsync.1] - 2026-11-05 (fork: Krystofee/pi-hermes-memory)
+
+### Added
+
+- **Git sync of memories and skills** ([docs/GIT-SYNC.md](docs/GIT-SYNC.md)): an optional `sync` config block shares `USER.md`, `MEMORY.md`, `failures.md`, `STANDING.md`, project memories and extension-managed skills between machines through a private Git repository. Memory files merge entry by entry (additions from both sides survive, removals propagate), skill conflicts keep the local version and preserve the other side under `conflicts/`, a first run is a union that deletes nothing, secret-like content blocks the run before commit, offline runs commit locally and push later, and the SQLite mirror is reconciled after every import. `sessions.db` never leaves the machine. New `/memory-git-sync [status]` command.
+
 ## [0.10.0] - 2026-11-03
 
 ### Added
