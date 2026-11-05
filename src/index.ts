@@ -62,6 +62,10 @@ import { AGENT_ROOT } from "./paths.js";
 import { isDatabaseMigrationPending } from "./extension-root-migration.js";
 import { measureLifecycle, measureLifecycleSync } from "./lifecycle-timing.js";
 import { createMemoryInitializer, withMemoryInitialization, type EnsureMemoryReady } from "./memory-initialization.js";
+import { DEFAULT_PROJECTS_MEMORY_DIR } from "./constants.js";
+import type { SyncOptions } from "./sync/git-sync.js";
+import { GitSyncScheduler } from "./sync/scheduler.js";
+import { registerGitSyncCommand } from "./sync/command.js";
 
 export function resolveProjectSkillDiscovery(
   skillStore: SkillStore,
@@ -288,6 +292,32 @@ export default function (pi: ExtensionAPI) {
   const ensureMemoryReady: EnsureMemoryReady = (ctx, signal) => initialization.ensure(ctx, signal);
   const memoryPi = withMemoryInitialization(pi, initialization);
 
+  // Git sync of Markdown memories and skills (fork feature, docs/GIT-SYNC.md).
+  // Memory children are short-lived writers; their parent session syncs.
+  const syncConfig = config.sync?.enabled && !isMemoryChildProcess() ? config.sync : null;
+  const syncProjectsMemoryDir = config.projectsMemoryDir ?? DEFAULT_PROJECTS_MEMORY_DIR;
+  const gitSyncOptions = (): SyncOptions => ({
+    repoPath: syncConfig!.repoPath,
+    remoteUrl: syncConfig!.remoteUrl,
+    branch: syncConfig!.branch,
+    roots: { globalDir, projectsRoot: path.resolve(agentRoot, syncProjectsMemoryDir) },
+    agentRoot,
+    projectsMemoryDir: syncProjectsMemoryDir,
+    // A lazy session must not open SQLite early; its own startup reconcile
+    // covers the files once memory is first used.
+    dbManager: !databaseClosed && (!lazy || initialization.isReady()) ? dbManager : null,
+  });
+  const gitSync = syncConfig
+    ? new GitSyncScheduler({
+        syncOptions: gitSyncOptions,
+        remoteCheckIntervalSeconds: syncConfig.remoteCheckIntervalSeconds,
+        notify: (message, level) => {
+          if (sessionContext?.ui?.notify) sessionContext.ui.notify(message, level);
+          else console.warn(message);
+        },
+      })
+    : null;
+
   // Skills and pinned instructions must be available even without a lookup.
   pi.on("session_start", async (_event, ctx) => {
     sessionContext = ctx;
@@ -298,6 +328,10 @@ export default function (pi: ExtensionAPI) {
     if (config.skillsEnabled) {
       await skillStore.migrateLegacySkills();
       await skillStore.ensureDiscoveredRoots();
+    }
+    if (gitSync) {
+      gitSync.start();
+      void gitSync.startup().catch(() => {});
     }
   });
 
@@ -398,6 +432,7 @@ export default function (pi: ExtensionAPI) {
   registerSwitchProjectCommand(pi, config);
   registerLearnMemoryCommand(pi);
   registerSyncMarkdownMemoriesCommand(memoryPi, dbManager, globalDir, config.projectsMemoryDir, agentRoot);
+  if (gitSync) registerGitSyncCommand(pi, gitSync, gitSyncOptions);
   registerPreviewContextCommand(lazy ? pi : memoryPi, store, projectStoreRef, projectNameRef, config, standingStore);
   if (standingStore) registerStandingPinCommand(pi, standingStore);
 
@@ -415,6 +450,10 @@ export default function (pi: ExtensionAPI) {
     dbManager, config.sessionSearch ?? { variant: "legacy" });
   registerMemorySearchTool(memoryPi, dbManager, { usageTrackingEnabled: config.usageHitTrackingEnabled });
   registerIndexSessionsCommand(memoryPi, config);
+
+  // Push what this session (and its shutdown flush above) wrote. Must stay
+  // before the final handler below, which closes the database.
+  if (gitSync) pi.on("session_shutdown", async () => { await gitSync.shutdown(); });
 
   // ── 12. Auto-index session on shutdown ──
   // Registered last, so this runs after the session-flush shutdown handler and

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MemoryConfig, MemoryOverflowStrategy, ReviewTransport, SessionSearchVariant, ThinkingLevel } from "./types.js";
+import type { GitSyncConfig, MemoryConfig, MemoryOverflowStrategy, ReviewTransport, SessionSearchVariant, ThinkingLevel } from "./types.js";
 import {
   DEFAULT_MEMORY_CHAR_LIMIT,
   DEFAULT_USER_CHAR_LIMIT,
@@ -21,7 +21,7 @@ import {
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
   DEFAULT_SESSION_RETENTION_DAYS,
 } from "./constants.js";
-import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
+import { AGENT_ROOT, expandHome, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 
 const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict"];
 const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
@@ -42,6 +42,28 @@ function isSessionSearchVariant(value: unknown): value is SessionSearchVariant {
 
 function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
+}
+
+export const DEFAULT_SYNC_REMOTE_CHECK_INTERVAL_SECONDS = 300;
+const MIN_SYNC_REMOTE_CHECK_INTERVAL_SECONDS = 30;
+
+/** `sync` block; anything without a usable repoPath leaves sync disabled. */
+function parseSyncConfig(value: unknown): GitSyncConfig | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.repoPath !== "string" || !raw.repoPath.trim()) return undefined;
+  const branch = typeof raw.branch === "string" ? raw.branch.trim() : "";
+  const interval = raw.remoteCheckIntervalSeconds;
+  return {
+    repoPath: path.resolve(AGENT_ROOT, expandHome(raw.repoPath.trim())),
+    remoteUrl: typeof raw.remoteUrl === "string" && raw.remoteUrl.trim() ? raw.remoteUrl.trim() : undefined,
+    branch: /^[A-Za-z0-9._/-]+$/.test(branch) && !branch.includes("..") ? branch : "main",
+    remoteCheckIntervalSeconds: typeof interval === "number" && Number.isFinite(interval)
+      && interval >= MIN_SYNC_REMOTE_CHECK_INTERVAL_SECONDS
+      ? interval
+      : DEFAULT_SYNC_REMOTE_CHECK_INTERVAL_SECONDS,
+    enabled: raw.enabled !== false,
+  };
 }
 
 const DEFAULT_CONFIG: MemoryConfig = {
@@ -192,6 +214,8 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
         const normalizedProjectsMemoryDir = normalizeProjectsMemoryDir(parsed.projectsMemoryDir);
         if (normalizedProjectsMemoryDir) config.projectsMemoryDir = normalizedProjectsMemoryDir;
       }
+      const sync = parseSyncConfig(parsed.sync);
+      if (sync) config.sync = sync;
       if (
         typeof parsed.sessionSearch === "object" &&
         parsed.sessionSearch !== null &&

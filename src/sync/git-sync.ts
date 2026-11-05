@@ -325,6 +325,30 @@ export async function readSyncState(repoPath: string): Promise<SyncState | null>
   return gitDir ? loadState(gitDir) : null;
 }
 
+export interface SyncStatus {
+  repoPath: string;
+  branch: string;
+  remoteUrl: string | null;
+  repoExists: boolean;
+  state: SyncState | null;
+  dirty: boolean;
+}
+
+export async function readSyncStatus(options: Pick<SyncOptions, "repoPath" | "branch" | "roots">): Promise<SyncStatus> {
+  const gitDir = await gitDirOf(options.repoPath);
+  const remote = gitDir
+    ? await new Git(options.repoPath, os.hostname()).run(["remote", "get-url", "origin"], { allowFail: true })
+    : null;
+  return {
+    repoPath: options.repoPath,
+    branch: options.branch,
+    remoteUrl: remote && remote.code === 0 ? remote.stdout.toString("utf-8").trim() : null,
+    repoExists: gitDir !== null,
+    state: gitDir ? await loadState(gitDir) : null,
+    dirty: (await checkLiveDirty(options.repoPath, options.roots)).dirty,
+  };
+}
+
 async function acquireLock(gitDir: string, waitMs: number): Promise<AtomicLockLease | null> {
   const coordinator = AtomicLockCoordinator.shared(path.join(gitDir, "hermes-sync", "locks.sqlite"));
   const deadline = Date.now() + waitMs;

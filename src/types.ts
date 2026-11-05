@@ -17,6 +17,20 @@ export interface SessionSearchConfig {
   variant: SessionSearchVariant;
 }
 
+/** Git sync of Markdown memories and skills (fork feature, docs/GIT-SYNC.md). */
+export interface GitSyncConfig {
+  /** Local clone of the private sync repository (absolute, ~ expanded). */
+  repoPath: string;
+  /** Cloned into repoPath when it does not exist yet. */
+  remoteUrl?: string;
+  /** Default: main */
+  branch: string;
+  /** Machine-wide minimum seconds between remote checks. Default: 300 */
+  remoteCheckIntervalSeconds: number;
+  /** Default: true */
+  enabled: boolean;
+}
+
 export interface MemoryConfig {
   /** Defer policy-only memory initialization until first use. Default: false */
   lazyInitialization?: boolean;
@@ -140,6 +154,8 @@ export interface MemoryConfig {
    * Default: 0 (disabled).
    */
   sessionRetentionDays?: number;
+  /** Git sync with a private repository; unset = disabled. */
+  sync?: GitSyncConfig;
 }
 
 export type MemoryCategory =

@@ -589,4 +589,48 @@ describe("loadConfig", () => {
     assert.strictEqual(config.usageHitTrackingEnabled, true);
     assert.strictEqual(config.consolidationUsageSignals, true);
   });
+  it("leaves git sync disabled without a usable sync.repoPath", () => {
+    assert.strictEqual(loadConfig(TEST_CONFIG_PATH).sync, undefined);
+    for (const sync of [null, "x", [], {}, { repoPath: "" }, { repoPath: 42, remoteUrl: "git@x:y.git" }]) {
+      fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({ sync }));
+      assert.strictEqual(loadConfig(TEST_CONFIG_PATH).sync, undefined, JSON.stringify(sync));
+    }
+  });
+
+  it("parses the git sync block with defaults and ~ expansion", () => {
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      sync: { repoPath: "~/Repos/pi-hermes-memory-repo", remoteUrl: " git@gitlab.com:krystofee/pi-hermes-memory-repo.git " },
+    }));
+    assert.deepStrictEqual(loadConfig(TEST_CONFIG_PATH).sync, {
+      repoPath: path.join(os.homedir(), "Repos", "pi-hermes-memory-repo"),
+      remoteUrl: "git@gitlab.com:krystofee/pi-hermes-memory-repo.git",
+      branch: "main",
+      remoteCheckIntervalSeconds: 300,
+      enabled: true,
+    });
+  });
+
+  it("accepts explicit sync options and ignores invalid ones", () => {
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      sync: { repoPath: "sync-repo", branch: "memory/sync", remoteCheckIntervalSeconds: 120, enabled: false },
+    }));
+    assert.deepStrictEqual(loadConfig(TEST_CONFIG_PATH).sync, {
+      repoPath: path.join(AGENT_ROOT, "sync-repo"),
+      remoteUrl: undefined,
+      branch: "memory/sync",
+      remoteCheckIntervalSeconds: 120,
+      enabled: false,
+    });
+
+    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
+      sync: { repoPath: "/tmp/r", branch: "../evil branch", remoteCheckIntervalSeconds: 5, enabled: "no", remoteUrl: 7 },
+    }));
+    assert.deepStrictEqual(loadConfig(TEST_CONFIG_PATH).sync, {
+      repoPath: "/tmp/r",
+      remoteUrl: undefined,
+      branch: "main",
+      remoteCheckIntervalSeconds: 300,
+      enabled: true,
+    });
+  });
 });
