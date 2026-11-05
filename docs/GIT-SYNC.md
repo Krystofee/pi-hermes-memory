@@ -166,7 +166,9 @@ For every managed path where exported != result:
 - Entry files are read and written under `withMarkdownMutationLock(livePath)`
   so no `MemoryStore` write interleaves. Running stores notice the new
   fingerprint on their next mutation.
-- Remove skill directories left empty by deletions.
+- Remove skill directories left empty by deletions. A project folder whose
+  `MEMORY.md` was deleted remotely stays: a session running in that project
+  writes its temp files next to `MEMORY.md` and needs the folder to exist.
 - Reconcile SQLite with `syncMarkdownMemoriesToSqlite(..., { onlyProjects })`
   for the changed project scopes (global scopes are always checked).
   `STANDING.md` is not mirrored in SQLite; running sessions load pins at
