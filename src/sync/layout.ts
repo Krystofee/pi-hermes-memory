@@ -124,9 +124,11 @@ async function isSymlinkOrSpecial(filePath: string): Promise<boolean> {
   }
 }
 
-/** Recursively collect regular files, skipping dot names and symlinks. */
-async function collectFiles(dir: string, relPrefix: string, out: SyncTree): Promise<void> {
-  let entries;
+type Visit = (relPath: string, fullPath: string) => Promise<void>;
+
+/** Recursively visit regular files, skipping dot names and symlinks. */
+async function walkFiles(dir: string, relPrefix: string, visit: Visit): Promise<void> {
+  let entries: Dirent[];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch (error) {
@@ -138,23 +140,27 @@ async function collectFiles(dir: string, relPrefix: string, out: SyncTree): Prom
     if (!isPlainSegment(entry.name)) continue;
     const fullPath = path.join(dir, entry.name);
     const relPath = `${relPrefix}/${entry.name}`;
-    if (entry.isDirectory()) {
-      await collectFiles(fullPath, relPath, out);
-    } else if (entry.isFile()) {
-      const file = await readRegularFile(fullPath);
-      if (file) out.set(relPath, file);
-    }
+    if (entry.isDirectory()) await walkFiles(fullPath, relPath, visit);
+    else if (entry.isFile()) await visit(relPath, fullPath);
   }
 }
 
-/** Snapshot of every managed live file. */
-export async function exportLiveTree(roots: LiveRoots): Promise<SyncTree> {
-  const tree: SyncTree = new Map();
-  for (const name of Object.keys(GLOBAL_ENTRY_FILES)) {
-    const file = await readRegularFile(path.join(roots.globalDir, name));
-    if (file) tree.set(`global/${name}`, file);
+async function isRegularFile(filePath: string): Promise<boolean> {
+  try {
+    return (await fs.lstat(filePath)).isFile();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
-  await collectFiles(path.join(roots.globalDir, SKILLS_DIR), `global/${SKILLS_DIR}`, tree);
+}
+
+/** Visit every managed live file (the export allowlist). */
+async function walkLive(roots: LiveRoots, visit: Visit): Promise<void> {
+  for (const name of Object.keys(GLOBAL_ENTRY_FILES)) {
+    const fullPath = path.join(roots.globalDir, name);
+    if (await isRegularFile(fullPath)) await visit(`global/${name}`, fullPath);
+  }
+  await walkFiles(path.join(roots.globalDir, SKILLS_DIR), `global/${SKILLS_DIR}`, visit);
 
   let projects: Dirent[];
   try {
@@ -167,11 +173,34 @@ export async function exportLiveTree(roots: LiveRoots): Promise<SyncTree> {
   for (const project of projects) {
     if (!project.isDirectory() || !isPlainSegment(project.name)) continue;
     const projectDir = path.join(roots.projectsRoot, project.name);
-    const memory = await readRegularFile(path.join(projectDir, PROJECT_MEMORY_FILE));
-    if (memory) tree.set(`projects/${project.name}/${PROJECT_MEMORY_FILE}`, memory);
-    await collectFiles(path.join(projectDir, SKILLS_DIR), `projects/${project.name}/${SKILLS_DIR}`, tree);
+    const memoryPath = path.join(projectDir, PROJECT_MEMORY_FILE);
+    if (await isRegularFile(memoryPath)) await visit(`projects/${project.name}/${PROJECT_MEMORY_FILE}`, memoryPath);
+    await walkFiles(path.join(projectDir, SKILLS_DIR), `projects/${project.name}/${SKILLS_DIR}`, visit);
   }
+}
+
+/** Snapshot of every managed live file. */
+export async function exportLiveTree(roots: LiveRoots): Promise<SyncTree> {
+  const tree: SyncTree = new Map();
+  await walkLive(roots, async (relPath, fullPath) => {
+    const file = await readRegularFile(fullPath);
+    if (file) tree.set(relPath, file);
+  });
   return tree;
+}
+
+/** Cheap "size:mtimeMs" per managed live file, without reading content. */
+export async function liveFileSignatures(roots: LiveRoots): Promise<Record<string, string>> {
+  const signatures: Record<string, string> = {};
+  await walkLive(roots, async (relPath, fullPath) => {
+    try {
+      const stat = await fs.lstat(fullPath);
+      if (stat.isFile()) signatures[relPath] = `${stat.size}:${stat.mtimeMs}:${normalizeMode(stat.mode).toString(8)}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  });
+  return signatures;
 }
 
 /** Replace the managed roots of a work tree with `tree`. */
@@ -189,13 +218,14 @@ export async function writeWorkTree(workTree: string, tree: SyncTree): Promise<v
 
 /** Managed files of a work tree; anything else a commit might carry is ignored. */
 export async function readWorkTree(workTree: string): Promise<SyncTree> {
-  const collected: SyncTree = new Map();
-  await collectFiles(path.join(workTree, "global"), "global", collected);
-  await collectFiles(path.join(workTree, "projects"), "projects", collected);
   const tree: SyncTree = new Map();
-  for (const [relPath, file] of collected) {
-    if (isManagedPath(relPath)) tree.set(relPath, file);
-  }
+  const visit: Visit = async (relPath, fullPath) => {
+    if (!isManagedPath(relPath)) return;
+    const file = await readRegularFile(fullPath);
+    if (file) tree.set(relPath, file);
+  };
+  await walkFiles(path.join(workTree, "global"), "global", visit);
+  await walkFiles(path.join(workTree, "projects"), "projects", visit);
   return tree;
 }
 
