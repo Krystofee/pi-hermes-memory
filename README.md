@@ -12,6 +12,33 @@
 
 </div>
 
+> **This is a fork** of [chandra447/pi-hermes-memory](https://github.com/chandra447/pi-hermes-memory) that adds **git sync**:
+> memories, lessons and skills are shared between all your machines through one private Git repository.
+> Without the `sync` config it behaves exactly like upstream 0.10.0.
+
+### Install this fork
+
+1. Install it. If you already have `npm:pi-hermes-memory` in `~/.pi/agent/settings.json`, remove that line; the two must not load together.
+   ```bash
+   pi install git:github.com/Krystofee/pi-hermes-memory@v0.10.0-gitsync.1
+   ```
+2. Create an **empty private** repository for your memories on GitHub or GitLab. Use your own and never share it: it holds everything the agent remembers about you and your work.
+3. Make sure this machine can push to it over SSH without a prompt: `git ls-remote git@github.com:<you>/<repo>.git` must work. A key loaded in ssh-agent is fine, a passphrase prompt is not. On a server, generate a key there and add it as a deploy key with write access.
+4. Add a `sync` block to `~/.pi/agent/hermes-memory-config.json` (create the file if it is missing, keep any keys already there):
+   ```json
+   {
+     "sync": {
+       "repoPath": "~/Repos/pi-hermes-memory-repo",
+       "remoteUrl": "git@github.com:<you>/<repo>.git"
+     }
+   }
+   ```
+5. Restart Pi (or `/reload`). The first sync clones the repository and merges local and remote memories; nothing is deleted. Check it with `/memory-git-sync status`.
+
+On every other machine repeat steps 1, 3, 4 and 5 with the same repository. How it works: [Git Sync (fork)](#git-sync-fork), design: [docs/GIT-SYNC.md](docs/GIT-SYNC.md).
+
+---
+
 Your Pi agent normally forgets everything when you close a session. **This extension fixes that.**
 
 - 🔍 **Search every conversation** — "what did we discuss about auth?" finds it instantly
@@ -698,24 +725,10 @@ native install scripts are disabled because the fixture writes no memories.
 This fork ([Krystofee/pi-hermes-memory](https://github.com/Krystofee/pi-hermes-memory)) can share
 Markdown memories, failure lessons, standing instructions and extension-managed skills between Pi
 machines through one private Git repository. Writes stay local first; a background sync merges them
-with the repository and tolerates being offline. Design and invariants: [docs/GIT-SYNC.md](docs/GIT-SYNC.md).
+with the repository and tolerates being offline. Setup: [Install this fork](#install-this-fork). Design and
+invariants: [docs/GIT-SYNC.md](docs/GIT-SYNC.md).
 
-```bash
-pi install git:github.com/Krystofee/pi-hermes-memory@v0.10.0-gitsync.1
-```
-
-Add a `sync` block to `~/.pi/agent/hermes-memory-config.json`:
-
-```json
-{
-  "sync": {
-    "repoPath": "~/Repos/pi-hermes-memory-repo",
-    "remoteUrl": "git@gitlab.com:you/pi-hermes-memory-repo.git",
-    "branch": "main",
-    "remoteCheckIntervalSeconds": 300
-  }
-}
-```
+Options of the `sync` block in `~/.pi/agent/hermes-memory-config.json`:
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -741,11 +754,9 @@ propagate, and an entry edited differently on two machines keeps both versions (
 them). A skill edited on two machines keeps the local version and saves the other one to
 `conflicts/<path>~<host>~<time>` in the repository; merge it by hand and delete the copy.
 
-**New machine:** install the fork, add the `sync` block with `remoteUrl`, and give the machine its own
-SSH key with **write** access to the repository (for example a GitLab deploy key generated on that
-machine). The first run is a union of local and remote content and deletes nothing. Running sessions
-pick up the new package after `/reload` or a restart; pulled skills and standing instructions apply from
-the next session.
+**New machine:** follow [Install this fork](#install-this-fork) with the same repository. The first run
+is a union of local and remote content and deletes nothing. Running sessions pick up the new package
+after `/reload` or a restart; pulled skills and standing instructions apply from the next session.
 
 **Recovery:** every sync is a commit, so any earlier state of a file can be restored from the
 repository history.
